@@ -52,3 +52,5 @@ with DAG('user_processing', schedule_interval='@daily',
         timeout=180*3,
         mode="reschedule"
     )
+
+    creating_table << is_api_availble >> extract_user
