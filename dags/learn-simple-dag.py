@@ -15,10 +15,11 @@ def my_function():
   print("Hello from a function")
 
 def raise_exception():
-    if(random.random() < 0.7):
-        raise Exception("less than 0.7")
+    val = random.random()
+    if(val < 0.7):
+        raise Exception("less than 0.7, val = %.2f",val)
     else:
-        print("I am okay");
+        print("I am okay! %f",val);
 
 with dag:
     print_message = PythonOperator(
