@@ -1,9 +1,11 @@
+import imp
 from urllib import response
 from airflow.models import DAG
 from datetime import datetime
 from airflow.providers.sqlite.operators.sqlite import SqliteOperator
 from airflow.providers.http.sensors.http import HttpSensor
 from airflow.providers.http.operators.http import SimpleHttpOperator
+from airflow.sensors.filesystem import FileSensor
 import json
 
 
@@ -40,4 +42,13 @@ with DAG('user_processing', schedule_interval='@daily',
         method='GET',
         response_filter=lambda response: json.loads(response.text),
         log_response=True
+    )
+
+    waiting_for_file = FileSensor(
+        task_id="waiting_for_file",
+        filepath="{{ ti.xcom_pull(task_ids='run_init_county', key='county')}}_rent.json",
+        fs_conn_id="file_path",
+        poke_interval=180,
+        timeout=180*3,
+        mode="reschedule"
     )
