@@ -1,4 +1,4 @@
-from airflow.models import DAG
+""" from airflow.models import DAG
 from airflow.sensors.filesystem import FileSensor
 from airflow.exceptions import AirflowSensorTimeout
 
@@ -20,4 +20,4 @@ with DAG(
         mode='reschedule',
         retries=3,
         on_failure_callback=_failure_callback
-    )
+    ) """
