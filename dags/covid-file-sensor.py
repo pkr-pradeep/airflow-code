@@ -1,18 +1,23 @@
-import glob
-import shutil
+import os
+import json
+from datetime import datetime
 from tempfile import NamedTemporaryFile
+
 from airflow import DAG
+from airflow.exceptions import AirflowSensorTimeout
+from airflow.hooks.filesystem import FSHook
+from airflow.providers.sqlite.hooks.sqlite import SqliteHook
+from airflow.operators.email import EmailOperator
 from airflow.operators.python import PythonOperator
 from airflow.sensors.filesystem import FileSensor
-from airflow.exceptions import AirflowSensorTimeout
-from datetime import datetime
-from airflow.hooks.filesystem import FSHook
-import os
-from airflow.operators.email import EmailOperator
+from airflow.providers.sqlite.operators.sqlite import SqliteOperator
 
 default_args = {
     'start_date': datetime(2022, 1, 31)
 }
+
+def hook_the_db(**context):
+    db_hook =  SqliteHook("");
 
 def hook_the_data(**context):
     hook = FSHook("conn_filesensor_Odisha");
@@ -21,7 +26,10 @@ def hook_the_data(**context):
     print(full_path)
     for path in full_path:
         if os.path.isfile(path):
-            print('Found File %s last modified: %s', str(path))
+            with open(path) as file:
+                print(os.path.basename(path))
+                d = json.loads(file.read())
+                print(d)
 
 def data_process():
     pass
@@ -46,7 +54,21 @@ def m_sent_email_alert(**context):
         )
         email_op.execute(context)
 
-with DAG('sense_file_dag', schedule_interval='@daily', default_args=default_args, catchup=False) as dag:
+with DAG('covid_2019_travel_data_dag', schedule_interval='@daily', default_args=default_args, catchup=False) as dag:
+
+    creating_table = SqliteOperator(
+        task_id='creating_table',
+        sqlite_conn_id='db_sqlite',
+        sql='''
+            CREATE TABLE covid_user_travel_info (
+            aadhar_no INT,
+            travel_date DATETIME,
+            mode TEXT,
+            state TEXT
+            );
+            '''
+    )
+    
     states = [
         FileSensor(
         task_id=f'covid_{state}',
@@ -79,4 +101,4 @@ with DAG('sense_file_dag', schedule_interval='@daily', default_args=default_args
         task_id="send_email_alert", python_callable=build_email, provide_context=True, dag=dag
     )
      """
-    states >> process >> store >> print_data
+    creating_table >> states >> process >> store >> print_data
