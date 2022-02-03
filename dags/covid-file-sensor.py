@@ -11,6 +11,7 @@ from airflow.operators.email import EmailOperator
 from airflow.operators.python import PythonOperator
 from airflow.sensors.filesystem import FileSensor
 from airflow.providers.sqlite.operators.sqlite import SqliteOperator
+from pandas import json_normalize
 
 default_args = {
     'start_date': datetime(2022, 1, 31)
@@ -27,9 +28,21 @@ def hook_the_data(**context):
     for path in full_path:
         if os.path.isfile(path):
             with open(path) as file:
-                print(os.path.basename(path))
+                base = os.path.basename(path)
                 d = json.loads(file.read())
-                print(d)
+                context['ti'].xcom_push(key=os.path.splitext(base)[0], value=d)
+
+def pull_state_data(**context):
+    list_state = ['Odisha', 'Gujarat', 'UttarPradesh']
+    for state in list_state:
+        state_travel_data = context['ti'].xcom_pull(key=state)
+        if not len(state_travel_data):
+            raise ValueError('value not found for ',state)
+        # Convert string to Python dict
+        travel_list = json.loads(state_travel_data)
+        #for i in len(employee_dict):
+        for x in range(len(travel_list)):
+	        print(travel_list[x]['aadhar_no'])
 
 def data_process():
     pass
