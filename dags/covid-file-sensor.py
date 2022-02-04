@@ -49,15 +49,15 @@ def pull_parse_state_data(**context):
     list_state = ['Odisha', 'Gujarat', 'UttarPradesh']
     for state in list_state:
      state_travel_data = context['ti'].xcom_pull(key='Covid_'+state)
+     print('state_travel_data',state_travel_data)
      if(not state_travel_data or len(state_travel_data) == 0):
       raise ValueError('value not found for ', state)
      # Convert string to Python dict
-     travel_list = json.loads(str(state_travel_data))
-     for x in range(len(travel_list)):
+     for x in range(len(state_travel_data)):
       processed_user = json_normalize({
-          'aadhar_no': travel_list[x]['aadhar_no'],
-          'travel_date' : travel_list[x]['travel_date'],
-          'mode' : travel_list[x]['mode'],
+          'aadhar_no': state_travel_data[x]['aadhar_no'],
+          'travel_date' : state_travel_data[x]['travel_date'],
+          'mode' : state_travel_data[x]['mode'],
           'state' : state
       })
       print(processed_user)
