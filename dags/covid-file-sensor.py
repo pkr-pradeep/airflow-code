@@ -1,5 +1,6 @@
 import os
 import json
+import pandas as pd
 from datetime import datetime
 from tempfile import NamedTemporaryFile
 
@@ -8,7 +9,7 @@ from airflow.exceptions import AirflowSensorTimeout
 from airflow.hooks.filesystem import FSHook
 from airflow.providers.sqlite.hooks.sqlite import SqliteHook
 from airflow.operators.email import EmailOperator
-from airflow.operators.python import PythonOperator
+from airflow.operators.python import PythonOperator, BranchPythonOperator
 from airflow.sensors.filesystem import FileSensor
 from airflow.providers.sqlite.operators.sqlite import SqliteOperator
 from pandas import json_normalize
@@ -17,9 +18,18 @@ default_args = {
     'start_date': datetime(2022, 1, 31)
 }
 
-
 def hook_the_db(**context):
-    db_hook = SqliteHook("")
+    sqlite_hook = SqliteHook(sqlite_conn_id='db_sqlite')
+    conn = sqlite_hook.get_conn()
+    sql='''
+        SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='covid_user_travel_info';
+        '''
+    value = pd.read_sql_query(sql, conn)
+    df = pd.DataFrame(value)
+    is_exist = df["count"].values[0];
+    if is_exist == 0:
+        return 'creating_table'
+    return 'store_data_to_xcoms'
 
 
 def hook_the_data(**context):
@@ -35,14 +45,14 @@ def hook_the_data(**context):
                 context['ti'].xcom_push(key=os.path.splitext(base)[0], value=d)
 
 
-def pull_state_data(**context):
+def pull_parse_state_data(**context):
     list_state = ['Odisha', 'Gujarat', 'UttarPradesh']
     for state in list_state:
-     state_travel_data = context['ti'].xcom_pull(key=state)
-     if not len(state_travel_data):
+     state_travel_data = context['ti'].xcom_pull(key='Covid_'+state)
+     if(not state_travel_data or len(state_travel_data) == 0):
       raise ValueError('value not found for ', state)
      # Convert string to Python dict
-     travel_list = json.loads(state_travel_data)
+     travel_list = json.loads(str(state_travel_data))
      for x in range(len(travel_list)):
       processed_user = json_normalize({
           'aadhar_no': travel_list[x]['aadhar_no'],
@@ -57,7 +67,6 @@ def data_process():
 
 def db_store():
     pass
-
 
 def _failure_callback(context):
     if isinstance(context['exception'], AirflowSensorTimeout):
@@ -81,6 +90,17 @@ def m_sent_email_alert(**context):
 
 
 with DAG('covid_2019_travel_data_dag', schedule_interval='@daily', default_args=default_args, catchup=False) as dag:
+    states = [
+        FileSensor(
+            task_id=f'covid_{state}',
+            retries=3,
+            poke_interval=10,
+            timeout=60,
+            mode="reschedule",
+            on_failure_callback=m_sent_email_alert,
+            filepath=f'Covid_{state}.txt',
+            fs_conn_id=f'conn_filesensor_{state}'
+        ) for state in ['Odisha', 'Gujarat', 'UttarPradesh']]
 
     creating_table = SqliteOperator(
         task_id='creating_table',
@@ -95,17 +115,18 @@ with DAG('covid_2019_travel_data_dag', schedule_interval='@daily', default_args=
             '''
     )
 
-    states = [
-        FileSensor(
-            task_id=f'covid_{state}',
-            retries=3,
-            poke_interval=10,
-            timeout=60,
-            mode="reschedule",
-            on_failure_callback=m_sent_email_alert,
-            filepath=f'Covid_{state}.txt',
-            fs_conn_id=f'conn_filesensor_{state}'
-        ) for state in ['Odisha', 'Gujarat', 'UttarPradesh']]
+    store_file_data_xcoms = PythonOperator(
+        task_id='store_data_to_xcoms',
+        python_callable=hook_the_data,
+        provide_context=True
+    )
+    
+    parse_file_data = PythonOperator(
+        task_id='parse_file_data',
+        python_callable=pull_parse_state_data,
+        provide_context=True,
+        trigger_rule='none_failed_or_skipped'
+    )
 
     process = PythonOperator(
         task_id="process",
@@ -117,9 +138,9 @@ with DAG('covid_2019_travel_data_dag', schedule_interval='@daily', default_args=
         python_callable=db_store
     )
 
-    print_data = PythonOperator(
-        task_id='print_file_task',
-        python_callable=hook_the_data,
+    branch_py_op = BranchPythonOperator(
+        task_id='branch_task',
+        python_callable=hook_the_db,
         provide_context=True
     )
 
@@ -127,4 +148,4 @@ with DAG('covid_2019_travel_data_dag', schedule_interval='@daily', default_args=
         task_id="send_email_alert", python_callable=build_email, provide_context=True, dag=dag
     )
      """
-    creating_table >> states >> process >> store >> print_data
+    states >> branch_py_op >> [creating_table, store_file_data_xcoms] >> parse_file_data >> process >> store
