@@ -1,10 +1,11 @@
-from logging import exception
-from multiprocessing.sharedctypes import Value
-from airflow.models import DAG
-from datetime import datetime
-from airflow.operators.python import PythonOperator, BranchPythonOperator
-from airflow.utils.dates import timedelta
 import random
+from datetime import datetime
+from tempfile import NamedTemporaryFile
+
+from airflow.models import DAG
+from airflow.operators.email import EmailOperator
+from airflow.operators.python import BranchPythonOperator, PythonOperator
+from airflow.utils.dates import timedelta
 
 args = {
     'start_date': datetime(2022, 1, 29)
@@ -85,4 +86,12 @@ with dag:
         python_callable=m_xcom_pull_hello,
     )
 
-    print_message >> retry_op >> xcom_push_op >> branch_py_op >> [xcom_pull_op_hi, xcom_pull_op_hello]
+    email_op_python = EmailOperator(
+        task_id='send_email',
+        to="pradeep.rout@impetus.com",
+        subject="Travellers data missing [Covid19]",
+        html_content="Please Import the document in appropriate the folder",
+        trigger_rule='none_failed_or_skipped'
+    )
+
+    print_message >> retry_op >> xcom_push_op >> branch_py_op >> [xcom_pull_op_hi, xcom_pull_op_hello] >> email_op_python

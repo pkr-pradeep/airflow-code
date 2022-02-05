@@ -17,7 +17,8 @@ from airflow.sensors.filesystem import FileSensor
 from airflow.providers.sqlite.operators.sqlite import SqliteOperator
 
 default_args = {
-    'start_date': datetime(2022, 1, 31)
+    'start_date': datetime(2022, 1, 31),
+    'retries':3
 }
 
 def hook_the_db(**context):
@@ -99,11 +100,9 @@ with DAG('covid_2019_travel_data_dag', schedule_interval='@daily', default_args=
     states = [
         FileSensor(
             task_id=f'covid_{state}',
-            retries=3,
             poke_interval=10,
             timeout=60,
             mode="reschedule",
-            on_failure_callback=m_sent_email_alert,
             filepath=f'Covid_{state}.txt',
             fs_conn_id=f'conn_filesensor_{state}'
         ) for state in ['Odisha', 'Gujarat', 'UttarPradesh']]
@@ -145,8 +144,7 @@ with DAG('covid_2019_travel_data_dag', schedule_interval='@daily', default_args=
         provide_context=True
     )
 
-    """ email_op_python = PythonOperator(
-        task_id="send_email_alert", python_callable=build_email, provide_context=True, dag=dag
+    email_op_python = PythonOperator(
+        task_id="send_email_alert", python_callable=m_sent_email_alert, provide_context=True, dag=dag
     )
-     """
-    states >> branch_py_op >> [creating_table, store_file_data_xcoms] >> parse_file_data >> store
+    states >> branch_py_op >> [creating_table, store_file_data_xcoms] >> parse_file_data >> store >> email_op_python
