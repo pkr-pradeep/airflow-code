@@ -2,6 +2,7 @@ import csv
 from email import header
 import os
 import json
+import sqlite3
 import pandas as pd
 from datetime import datetime
 from tempfile import NamedTemporaryFile
@@ -14,7 +15,6 @@ from airflow.operators.email import EmailOperator
 from airflow.operators.python import PythonOperator, BranchPythonOperator
 from airflow.sensors.filesystem import FileSensor
 from airflow.providers.sqlite.operators.sqlite import SqliteOperator
-from pandas import json_normalize
 
 default_args = {
     'start_date': datetime(2022, 1, 31)
@@ -68,17 +68,17 @@ def pull_parse_state_data(**context):
       csv_writer.writerow(travel_data.values())
     data_file.close()
 
-def data_process():
-    pass
-
 def db_store():
-    pass
+    sqlite_hook = SqliteHook(sqlite_conn_id='db_sqlite')
+    conn = sqlite_hook.get_conn()
+    travel_datas = pd.read_csv('data/processed_user.csv')
+    # write the data to a sqlite table
+    travel_datas.to_sql('covid_user_travel_info', conn, if_exists='append', index = False)
 
 def _failure_callback(context):
     if isinstance(context['exception'], AirflowSensorTimeout):
         print(context)
     print("Sensor timed out")
-
 
 def m_sent_email_alert(**context):
     print('preparing to send mail')
@@ -134,11 +134,6 @@ with DAG('covid_2019_travel_data_dag', schedule_interval='@daily', default_args=
         trigger_rule='none_failed_or_skipped'
     )
 
-    process = PythonOperator(
-        task_id="process",
-        python_callable=data_process
-    )
-
     store = PythonOperator(
         task_id="store",
         python_callable=db_store
@@ -154,4 +149,4 @@ with DAG('covid_2019_travel_data_dag', schedule_interval='@daily', default_args=
         task_id="send_email_alert", python_callable=build_email, provide_context=True, dag=dag
     )
      """
-    states >> branch_py_op >> [creating_table, store_file_data_xcoms] >> parse_file_data >> process >> store
+    states >> branch_py_op >> [creating_table, store_file_data_xcoms] >> parse_file_data >> store
