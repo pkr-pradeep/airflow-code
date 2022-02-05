@@ -1,3 +1,5 @@
+import csv
+from email import header
 import os
 import json
 import pandas as pd
@@ -47,20 +49,24 @@ def hook_the_data(**context):
 
 def pull_parse_state_data(**context):
     list_state = ['Odisha', 'Gujarat', 'UttarPradesh']
+    data_file = open("data/processed_user.csv", "w+")
+    csv_writer = csv.writer(data_file)
+    count=0
     for state in list_state:
      state_travel_data = context['ti'].xcom_pull(key='Covid_'+state)
      print('state_travel_data',state_travel_data)
      if(not state_travel_data or len(state_travel_data) == 0):
       raise ValueError('value not found for ', state)
-     # Convert string to Python dict
-     for x in range(len(state_travel_data)):
-      processed_user = json_normalize({
-          'aadhar_no': state_travel_data[x]['aadhar_no'],
-          'travel_date' : state_travel_data[x]['travel_date'],
-          'mode' : state_travel_data[x]['mode'],
-          'state' : state
-      })
-      print(processed_user)
+      #iterating each state travel data at covid
+     for travel_data in state_travel_data:
+      if count == 0:
+        # Writing headers of CSV file
+        header = travel_data.keys()
+        csv_writer.writerow(header)
+        count += 1
+        # Writing data into CSV file
+      csv_writer.writerow(travel_data.values())
+    data_file.close()
 
 def data_process():
     pass
