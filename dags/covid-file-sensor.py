@@ -49,7 +49,7 @@ def hook_the_data(**context):
 
 def pull_parse_state_data(**context):
     list_state = ['Odisha', 'Gujarat', 'UttarPradesh']
-    data_file = open("data/processed_user.csv", "w+")
+    data_file = open("data/processed_travel_data.csv", "w+")
     csv_writer = csv.writer(data_file)
     count=0
     for state in list_state:
@@ -71,9 +71,9 @@ def pull_parse_state_data(**context):
 def db_store():
     sqlite_hook = SqliteHook(sqlite_conn_id='db_sqlite')
     conn = sqlite_hook.get_conn()
-    travel_datas = pd.read_csv('data/processed_user.csv')
+    citizens_travel_data = pd.read_csv('data/processed_travel_data.csv')
     # write the data to a sqlite table
-    travel_datas.to_sql('covid_user_travel_info', conn, if_exists='append', index = False)
+    citizens_travel_data.to_sql('covid_user_travel_info', conn, if_exists='append', index = False)
 
 def _failure_callback(context):
     if isinstance(context['exception'], AirflowSensorTimeout):
