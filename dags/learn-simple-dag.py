@@ -1,4 +1,5 @@
 import random
+import pandas as pd
 from datetime import datetime
 from tempfile import NamedTemporaryFile
 
@@ -48,6 +49,10 @@ def m_xcom_pull_hi(**context):
     random_value = context['ti'].xcom_pull(key='r_val')
     print(f'hi, xcom pulled {str(random_value)}')
 
+def process_csv_data(**context):
+    citizens_travel_data = pd.read_csv('data/processed_travel_data.csv')
+    travel_dict = {'aadhar_no':None, 'count':None}
+    print(citizens_travel_data)
 
 with dag:
 

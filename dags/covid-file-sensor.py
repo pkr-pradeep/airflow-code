@@ -18,18 +18,20 @@ from airflow.providers.sqlite.operators.sqlite import SqliteOperator
 
 default_args = {
     'start_date': datetime(2022, 1, 31),
-    'retries':3
+    'retries': 3,
+    'timeout': 60
 }
+
 
 def hook_the_db(**context):
     sqlite_hook = SqliteHook(sqlite_conn_id='db_sqlite')
     conn = sqlite_hook.get_conn()
-    sql='''
+    sql = '''
         SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='covid_user_travel_info';
         '''
     value = pd.read_sql_query(sql, conn)
     df = pd.DataFrame(value)
-    is_exist = df["count"].values[0];
+    is_exist = df["count"].values[0]
     if is_exist == 0:
         return 'creating_table'
     return 'store_data_to_xcoms'
@@ -52,10 +54,10 @@ def pull_parse_state_data(**context):
     list_state = ['Odisha', 'Gujarat', 'UttarPradesh']
     data_file = open("data/processed_travel_data.csv", "w+")
     csv_writer = csv.writer(data_file)
-    count=0
+    count = 0
     for state in list_state:
      state_travel_data = context['ti'].xcom_pull(key='Covid_'+state)
-     print('state_travel_data',state_travel_data)
+     print('state_travel_data', state_travel_data)
      if(not state_travel_data or len(state_travel_data) == 0):
       raise ValueError('value not found for ', state)
       #iterating each state travel data at covid
@@ -69,19 +71,44 @@ def pull_parse_state_data(**context):
       csv_writer.writerow(travel_data.values())
     data_file.close()
 
+
 def db_store():
     sqlite_hook = SqliteHook(sqlite_conn_id='db_sqlite')
     conn = sqlite_hook.get_conn()
     citizens_travel_data = pd.read_csv('data/processed_travel_data.csv')
     # write the data to a sqlite table
-    citizens_travel_data.to_sql('covid_user_travel_info', conn, if_exists='append', index = False)
+    citizens_travel_data.to_sql(
+        'covid_user_travel_info', conn, if_exists='append', index=False)
+
+
+def get_top_travellers(**context):
+    citizens_travel_data = pd.read_csv('data/processed_travel_data.csv')
+    report_headers = ['aadhar_no', 'count']
+    data_file = open("data/top_travellers.csv", "w+")
+    csv_writer = csv.writer(data_file)
+    csv_writer.writerow(report_headers)
+    userAndTravelcount = {}
+    for i in range(len(citizens_travel_data['aadhar_no'])):
+        if citizens_travel_data['aadhar_no'][i] not in userAndTravelcount.keys():
+            userAndTravelcount[citizens_travel_data['aadhar_no'][i]] = 1
+        else:
+            count = userAndTravelcount.get(
+                citizens_travel_data['aadhar_no'][i]) + 1
+            userAndTravelcount[citizens_travel_data['aadhar_no'][i]] = count
+    for user, travelcount in userAndTravelcount.items():
+        if travelcount > 1:
+            traveller_data = [user, travelcount]
+            csv_writer.writerow(traveller_data)
+    data_file.close()
+
 
 def _failure_callback(context):
     if isinstance(context['exception'], AirflowSensorTimeout):
         print(context)
     print("Sensor timed out")
 
-def m_sent_email_alert(**context):
+
+""" def m_sent_email_alert(**context):
     print('preparing to send mail')
     with NamedTemporaryFile(mode='w+', suffix=".txt") as file:
         file.write("Hello World")
@@ -93,7 +120,7 @@ def m_sent_email_alert(**context):
             html_content="Please Import the document in appropriate the folder",
             files=[file.name]
         )
-        email_op.execute(context)
+        email_op.execute(context) """
 
 
 with DAG('covid_2019_travel_data_dag', schedule_interval='@daily', default_args=default_args, catchup=False) as dag:
@@ -125,7 +152,7 @@ with DAG('covid_2019_travel_data_dag', schedule_interval='@daily', default_args=
         python_callable=hook_the_data,
         provide_context=True
     )
-    
+
     parse_file_data = PythonOperator(
         task_id='parse_file_data',
         python_callable=pull_parse_state_data,
@@ -144,7 +171,13 @@ with DAG('covid_2019_travel_data_dag', schedule_interval='@daily', default_args=
         provide_context=True
     )
 
-    email_op_python = PythonOperator(
-        task_id="send_email_alert", python_callable=m_sent_email_alert, provide_context=True, dag=dag
+    op_top_travellers = PythonOperator(
+        task_id="t_top_travellers",
+        python_callable=get_top_travellers,
+        provide_context=True
     )
-    states >> branch_py_op >> [creating_table, store_file_data_xcoms] >> parse_file_data >> store >> email_op_python
+
+    """ email_op_python = PythonOperator(
+        task_id="send_email_alert", python_callable=m_sent_email_alert, provide_context=True, dag=dag
+    ) """
+    states >> branch_py_op >> [creating_table, store_file_data_xcoms] >> parse_file_data >> store >> op_top_travellers
