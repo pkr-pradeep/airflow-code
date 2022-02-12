@@ -31,3 +31,21 @@ with open("test.csv", "w") as outfile:
     for topUser, travelCount in topUserAndTravelCount.items():
         traveller_data = [topUser, travelCount]
         writer.writerow(traveller_data)
+
+#send email
+# Python code to illustrate Sending mail from
+# your Gmail account
+import smtplib
+
+# creates SMTP session
+s = smtplib.SMTP('smtp.office365.com', 587)
+# start TLS for security
+s.starttls()
+# Authentication
+s.login("pkrislive@outlook.com", "XXXXXXXXXXX")
+# message to be sent
+message = "Message_you_need_to_send"
+# sending the mail
+s.sendmail("pkrislive@outlook.com", "pradeep.rout@Impetus.com", message)
+# terminating the session
+s.quit()

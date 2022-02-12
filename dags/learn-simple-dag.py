@@ -93,6 +93,7 @@ with dag:
 
     email_op_python = EmailOperator(
         task_id='send_email',
+        conn_id='email_conn',
         to="pradeep.rout@impetus.com",
         subject="Travellers data missing [Covid19]",
         html_content="Please Import the document in appropriate the folder",

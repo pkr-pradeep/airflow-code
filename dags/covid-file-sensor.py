@@ -1,20 +1,22 @@
 import csv
-from email import header
-import os
 import json
-import sqlite3
-import pandas as pd
+import os
 from datetime import datetime
-from tempfile import NamedTemporaryFile
+from zipfile import ZipFile
 
+import pandas as pd
 from airflow import DAG
-from airflow.exceptions import AirflowSensorTimeout
 from airflow.hooks.filesystem import FSHook
+from airflow.models import Variable, XCom
+from airflow.operators.python import BranchPythonOperator, PythonOperator
 from airflow.providers.sqlite.hooks.sqlite import SqliteHook
-from airflow.operators.email import EmailOperator
-from airflow.operators.python import PythonOperator, BranchPythonOperator
-from airflow.sensors.filesystem import FileSensor
 from airflow.providers.sqlite.operators.sqlite import SqliteOperator
+from airflow.sensors.filesystem import FileSensor
+from airflow.utils.db import provide_session
+from jinja2 import Template
+
+date_var = Variable.set("todays_date", datetime.now().strftime("%d%m%Y"))
+date_today = Variable.get("todays_date")
 
 default_args = {
     'start_date': datetime(2022, 1, 31),
@@ -39,7 +41,7 @@ def hook_the_db(**context):
 
 def hook_the_data(**context):
     hook = FSHook("conn_filesensor_Odisha")
-    full_path = [os.path.join(hook.get_path(), f'Covid_{state}.txt')
+    full_path = [os.path.join(hook.get_path(), f'Covid_{state}_{date_today}.txt')
                  for state in ['Odisha', 'Gujarat', 'UttarPradesh']]
     print(full_path)
     for path in full_path:
@@ -56,7 +58,7 @@ def pull_parse_state_data(**context):
     csv_writer = csv.writer(data_file)
     count = 0
     for state in list_state:
-     state_travel_data = context['ti'].xcom_pull(key='Covid_'+state)
+     state_travel_data = context['ti'].xcom_pull(key=Template("Covid_{{state}}_{{today}}").render(today=date_today, state=state))
      print('state_travel_data', state_travel_data)
      if(not state_travel_data or len(state_travel_data) == 0):
       raise ValueError('value not found for ', state)
@@ -102,35 +104,34 @@ def get_top_travellers(**context):
     data_file.close()
 
 
-def _failure_callback(context):
-    if isinstance(context['exception'], AirflowSensorTimeout):
-        print(context)
-    print("Sensor timed out")
+def _archieve_and_move_the_file_after_processing():
+    zipObj = ZipFile(Template("data/processed/Covid_traveldata_{{today}}.zip").render(today=date_today), 'w')
+    list_state = ['Odisha', 'Gujarat', 'UttarPradesh']
+    for state in list_state:
+        t = Template("data/Covid_{{state}}_{{today}}.txt").render(today=date_today, state=state)
+        t_move = Template("data/processed/Covid_{{state}}_{{today}}.txt").render(today=date_today, state=state)
+        zipObj.write(t)
+        os.replace(t, t_move)
+
+@provide_session
+def cleanup_xcom(session=None, **context):
+        dag = context["dag"]
+        dag_id = dag._dag_id 
+        # It will delete all xcom of the dag_id
+        session.query(XCom).filter(XCom.dag_id == dag_id).delete()
 
 
-""" def m_sent_email_alert(**context):
-    print('preparing to send mail')
-    with NamedTemporaryFile(mode='w+', suffix=".txt") as file:
-        file.write("Hello World")
-
-        email_op = EmailOperator(
-            task_id='send_email',
-            to="pradeep.rout@impetus.com",
-            subject="Travellers data missing [Covid19]",
-            html_content="Please Import the document in appropriate the folder",
-            files=[file.name]
-        )
-        email_op.execute(context) """
-
-
-with DAG('covid_2019_travel_data_dag', schedule_interval='@daily', default_args=default_args, catchup=False) as dag:
+with DAG('covid_2019_travel_data_dag', 
+          schedule_interval='@daily', 
+          default_args=default_args,
+          catchup=False) as dag:
     states = [
         FileSensor(
             task_id=f'covid_{state}',
             poke_interval=10,
             timeout=60,
             mode="reschedule",
-            filepath=f'Covid_{state}.txt',
+            filepath=f'Covid_{state}_{date_today}.txt',
             fs_conn_id=f'conn_filesensor_{state}'
         ) for state in ['Odisha', 'Gujarat', 'UttarPradesh']]
 
@@ -177,7 +178,15 @@ with DAG('covid_2019_travel_data_dag', schedule_interval='@daily', default_args=
         provide_context=True
     )
 
-    """ email_op_python = PythonOperator(
-        task_id="send_email_alert", python_callable=m_sent_email_alert, provide_context=True, dag=dag
-    ) """
-    states >> branch_py_op >> [creating_table, store_file_data_xcoms] >> parse_file_data >> store >> op_top_travellers
+    op_archieve_todays_file = PythonOperator(
+        task_id = 't_archieve_file',
+        python_callable= _archieve_and_move_the_file_after_processing
+    )
+
+    op_cleanup_xcoms =  PythonOperator(
+        task_id="clean_xcom",
+        python_callable = cleanup_xcom,
+        provide_context=True
+    )
+
+    states >> branch_py_op >> [creating_table, store_file_data_xcoms] >> parse_file_data >> store >> op_top_travellers >> op_archieve_todays_file >> op_cleanup_xcoms
